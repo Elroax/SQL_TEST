@@ -1,89 +1,115 @@
-/* ======= Test 
-Use my code to create the tables for the exercise.
+-- Drop temporary tables if they exist TableA, TableB, TableMAP
+IF OBJECT_ID('tempdb..#TableA') IS NOT NULL
+    DROP TABLE #TableA;
 
--- Create Table_A
-CREATE TABLE Table_A (
-    dimension_1 INT,
-    dimension_2 VARCHAR(10),
-    Value_1 INT
+IF OBJECT_ID('tempdb..#TableB') IS NOT NULL
+    DROP TABLE #TableB;
+
+IF OBJECT_ID('tempdb..#TableMAP') IS NOT NULL
+    DROP TABLE #TableMAP;
+
+--=======================
+
+-- Create temporary tables
+--TableA
+CREATE TABLE #TableA (
+    dimension_1 VARCHAR(1),
+    dimension_2 VARCHAR(1),
+    dimension_3 VARCHAR(1),
+    measure_1 INT
 );
 
--- Insert sample data into Table_A
-INSERT INTO Table_A (dimension_1, dimension_2, Value_1)
+INSERT INTO #TableA (dimension_1, dimension_2, dimension_3, measure_1)
 VALUES
-    (1, 'X', 10),
-    (2, 'Y', 20),
-    (3, 'Z', 30);
+    ('a', 'I', 'K', 1),
+    ('a', 'J', 'L', 7),
+    ('b', 'I', 'M', 2),
+    ('c', 'J', 'N', 5);
 
--- Create Table_B
-CREATE TABLE Table_B (
-    dimension_1 INT,
-    dimension_2 VARCHAR(10),
-    Value_2 INT
+--TableB
+CREATE TABLE #TableB (
+    dimension_1 VARCHAR(1),
+    dimension_2 VARCHAR(1),
+    measure_2 INT
 );
 
--- Insert sample data into Table_B
-INSERT INTO Table_B (dimension_1, dimension_2, Value_2)
+INSERT INTO #TableB (dimension_1, dimension_2, measure_2)
 VALUES
-    (1, 'X', 5),
-    (2, 'Y', 10),
-    (3, 'W', 15);
+    ('a', 'I', 7),
+    ('b', 'I', 10),
+    ('d', 'J', 4);
 
--- Create MAP table
-CREATE TABLE MAP (
-    incorrect_Letter VARCHAR(10),
-    correct_Letter VARCHAR(10)
+--TableMAP
+CREATE TABLE #TableMAP (
+    dimension_1 VARCHAR(1),
+    correct_dimension_2 VARCHAR(1)
 );
 
--- Insert sample data into MAP
-INSERT INTO MAP (incorrect_Letter, correct_Letter)
-VALUES ('Z', 'A'),('W', 'B'),('L', 'C'),('H', 'D');
-
-
-
-Maping the Correct Letters ============
+INSERT INTO #TableMAP (dimension_1, correct_dimension_2)
+VALUES
+    ('a', 'W'),
+    ('a', 'W'),
+    ('b', 'X'),
+    ('c', 'Y'),
+    ('b', 'X'),
+    ('d', 'Z');
+--=======================
+/*
+IMPOTANT ON TASK DID NOT SAY IF MAP VALUES COULD AFFECT THE RESULT TABLES!
+I BELIVE SOULD NOT THEM I CREATE THE CODE THIS WAY IF YOU THINK YOU WANT TO SUM THE DUPLICATION VALUES
+PLEASE CHANGE THE LINES 73 TO 74  AND LINE 88 TO 89
 */
 
--- ======== Maping the Correct Letters ======
-
--- Table_A and Table_B having a wrong letter say the test! =)
--- replace Z to A and W to B
-
-WITH Corrected_A AS (
+-- Map dimension_2 in Table A using Table MAP and aggregate measure_1
+WITH mapped_a AS (
     SELECT
-        dimension_1,
-        COALESCE(M.correct_Letter, A.dimension_2) AS dimension_2,
-        measure_1
-    FROM Table_A A
-    LEFT JOIN MAP M ON A.dimension_2 = M.incorrect_Letter
+        a.dimension_1,
+        m.correct_dimension_2 AS dimension_2,
+        SUM(a.measure_1) AS measure_1
+    FROM
+        #TableA a
+    JOIN
+       (SELECT DISTINCT * FROM  #TableMAP)m ON a.dimension_1 = m.dimension_1 
+	--#TableMAP m ON a.dimension_1 = m.dimension_1
+    GROUP BY
+        a.dimension_1, m.correct_dimension_2
 ),
 
-Corrected_B AS (
+-- Map dimension_2 in Table B using Table MAP and aggregate measure_2
+mapped_b AS (
     SELECT
-        dimension_1,
-        COALESCE(M.correct_Letter, B.dimension_2) AS dimension_2,
-        measure_2
-    FROM Table_B B
-    LEFT JOIN MAP M ON B.dimension_2 = M.incorrect_Letter
+        b.dimension_1,
+        m.correct_dimension_2 AS dimension_2,
+        SUM(b.measure_2) AS measure_2
+    FROM
+        #TableB b
+    JOIN
+        (SELECT DISTINCT * from  #TableMAP) m ON b.dimension_1 = m.dimension_1
+	--#TableMAP m ON b.dimension_1 = m.dimension_1
+    GROUP BY
+        b.dimension_1, m.correct_dimension_2
 )
--- ============================================================================================================
 
--- Aggregate measures from Corrected_A and Corrected_B and NUll values = 0 and 
--- Extra colum was create to sume all measure.
-
+-- Combine the results using FULL OUTER JOIN
 SELECT
-    COALESCE(CA.dimension_1, CB.dimension_1) AS dimension_1,
-    COALESCE(CA.dimension_2, CB.dimension_2) AS dimension_2,
-    SUM(COALESCE(CA.measure_1, 0)) AS measure_1,
-	SUM(COALESCE(CB.measure_2, 0)) AS measure_2,
-	SUM(COALESCE(CA.measure_1, 0)) + SUM(COALESCE(CB.measure_2, 0)) AS total_measure_sum
-FROM Corrected_A CA
-FULL JOIN Corrected_B CB
-    ON CA.dimension_1 = CB.dimension_1
-    AND COALESCE(CA.dimension_2, '') = COALESCE(CB.dimension_2, '')
-GROUP BY COALESCE(CA.dimension_1, CB.dimension_1), COALESCE(CA.dimension_2, CB.dimension_2)
-ORDER BY dimension_1
+    COALESCE(mapped_a.dimension_1, mapped_b.dimension_1) AS dimension_1,
+    COALESCE(mapped_a.dimension_2, mapped_b.dimension_2) AS dimension_2,
+    COALESCE(mapped_a.measure_1, 0) AS measure_1,
+    COALESCE(mapped_b.measure_2, 0) AS measure_2
+FROM
+    mapped_a
+FULL OUTER JOIN
+    mapped_b ON mapped_a.dimension_1 = mapped_b.dimension_1
+             AND mapped_a.dimension_2 = mapped_b.dimension_2;
 
--- to check the tables vs end table
-Select * from Table_A
-Select * from Table_B
+
+/*
+RESULTE TABLE 
+dimension_1 | dimension_2 | measure_1 | measure_2
+----------------------------------------------
+         a |           W |         8 |      7
+         b |           X |         2 |     10
+         c |           Y |         5 |      0
+         d |           Z |         0 |      4
+
+*/
